@@ -8,6 +8,12 @@
 import os
 import time
 
+import argparse
+import sys
+import chardet
+import imageio
+
+from moviepy.editor import *
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
@@ -15,7 +21,7 @@ from PIL import ImageGrab, ImageFont
 
 
 # import pygame
-
+root_path = os.path.split(sys.argv[0])[0]
 
 def readClipboard():
     """
@@ -26,6 +32,20 @@ def readClipboard():
     if isinstance(img, Image.Image):
         # img.save('./img/test.png')
         return img
+
+
+def getVideoInfo(inpath):
+    """
+    获取视频基本信息
+    :param inpath:
+    :return: 返回基本信息
+    """
+    vc = cv2.VideoCapture(inpath)
+    width = vc.get(cv2.CAP_PROP_FRAME_WIDTH)
+    height = vc.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    fps = vc.get(cv2.CAP_PROP_FPS)
+    framesNum = vc.get(cv2.CAP_PROP_FRAME_COUNT)
+    return {"widthHeight": (int(width), int(height)), "fps": fps, "framesNum": framesNum}
 
 
 def imgToChar(imgPath, outPath):
@@ -205,24 +225,35 @@ def CharToImgArray(char):
     return reC
 
 
-def imgFilesToVideo(imgPath, size):
+def imgFilesToVideo(imgPath, outpath=os.path.join(root_path,"videotmp",str(int(time.time())) + ".mp4"), fps=12):
+    """
     # 图片文件列表 转视频
+    :param imgPath: 所有图片的路径
+    :param outpath: 视频输出路径以及文件名
+    :param fps:
+    :return:
+    """
 
     # path = r'C:\Users\Administrator\Desktop\1\huaixiao\\'#文件路径
     filelist = os.listdir(imgPath)  # 获取该目录下的所有文件名
+    try:
+        filelist.sort(key=lambda x: int(x[:-4]))  # 是读取的文件按照数字大小排序
+    except:pass
+
     '''
     fps:
     帧率：1秒钟有n张图片写进去[控制一张图片停留5秒钟，那就是帧率为1，重复播放这张图片5次] 
     如果文件夹下有50张 534*300的图片，这里设置1秒钟播放5张，那么这个视频的时长就是10秒
     '''
-    fps = 12
-    # size = (591,705) #图片的分辨率片
-    file_path = r"./testData/video/" + str(int(time.time())) + ".mp4"  # 导出路径
+    # 获取图片分辨率
+    vc = cv2.VideoCapture(os.path.join(imgPath,filelist[0]))
+    width = int(vc.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(vc.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    size = (width, height)  # 图片的分辨率片
     # 不同视频编码对应不同视频格式（例：'I','4','2','0' 对应avi格式）
-    fourcc = cv2.CV_FOURCC(*"mp4v")  # opencv版本是2
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     # fourcc = cv2.VideoWriter_fourcc(*'XVID') #opencv版本是3
-
-    video = cv2.VideoWriter(file_path, fourcc, fps, size)
+    video = cv2.VideoWriter(outpath, fourcc, fps, size)
 
     for item in filelist:
         if item.endswith('.png'):  # 判断图片后缀是否是.png
@@ -233,8 +264,8 @@ def imgFilesToVideo(imgPath, size):
 
 
 def imgToVideo(imgList, outPath, fps=12):
-    # Image 转视频
     """
+    # Image 转视频
     :param imgList:  图片列表 数组类型（cv2）
     :param outPath:  视频输出路径及名称
     :param fps:      帧率
@@ -423,6 +454,72 @@ def videoToColorCharVideo(inPath, outPath):
     imgToVideo(imgArray, outPath, fps=info["fps"])
 
 
+def videoToGif(inpath, outpath, fps=30):
+    """
+    由视频生成gif动图
+    :param inpath:  file 路径
+    :param outpath: gif 图 路径
+    :return:
+    """
+    video = inpath
+    clip = VideoFileClip(video)
+    clip = clip.set_duration(clip.duration)
+    clip.write_gif(outpath, fps=fps)
+
+    return True
+
+def imgToGif(inpath,outpath,duration=0.1):
+    """
+    由图片文件夹生成gif动图
+    :param inpath: 很多图片的文件夹
+    :param outpath: 输出gif的文件名及路径
+    :param duration: gif图像时间间隔，这里默认设置为1s,当然你喜欢可以设置其他；
+    :return:
+    """
+    imgList = os.listdir(inpath)
+    try:
+        imgList.sort(key=lambda x: int(x[:-4]))  # 是读取的文件按照数字大小排序
+    except:pass
+    frames = []
+    for imagename in imgList:
+        frames.append(imageio.imread(os.path.join(inpath,imagename)))
+    imageio.mimsave(outpath, frames, 'GIF', duration=duration)
+    return
+
+def imgClip(inpath,clipData = (0,0,100,100),outpath = ""):
+    """
+    切割图片
+    :param inpath: 图片路径
+    :param clipData: (top,left,height,width):(top,left) 切割的图像左上角顶点  （height,width） 切割剩余图像的高度宽度
+    :param outpath: 输出图片路径
+    :return:
+    """
+    if outpath=="":
+        outpath = "_clip.".join(inpath.split("."))
+    img = cv2.imread(inpath)
+    top,left,height,width = clipData  # (top,left) 切割的图像左上角顶点  （height,width） 切割剩余图像的高度宽度
+    img = img[int(top):(int(top) + int(height)), int(left):(int(left) + int(width))]
+    cv2.imwrite(outpath,img)
+    return True
+
+def parse_args():
+    """
+    进行命令行参数解析
+    :return:进行参数的解析
+    """
+    path = os.path.split(sys.argv[0])
+    description = "you should add those parameter"  # 步骤二
+    parser = argparse.ArgumentParser(
+        description=description)  # 这些参数都有默认值，当调用parser.print_help()或者运行程序时由于参数不正确(此时python解释器其实也是调用了pring_help()方法)时，
+    # 会打印这些描述信息，一般只需要传递description参数，如上。
+    parser.add_argument("video", type=str, help="输入视频路径")  # 步骤三，后面的help是我的描述
+    parser.add_argument("-o", "--outpath", help="输出文件路径", default=os.path.join(path[0], "test"))
+    parser.add_argument("-t", "--type", default="video", choices=["video", "v", "music", "m", "3", "4", "all"],
+                        help="选择将要下载的类型（音乐，视频，全部）", dest="DownType")
+    args = parser.parse_args()  # 步骤四
+    return args
+
+
 if __name__ == '__main__':
     # img = readClipboard()
     # img.save('./testData/1.png')
@@ -432,7 +529,15 @@ if __name__ == '__main__':
     # charToImg(text)
     # videoToChar('./testData/1.mp4')
     # videoToCharVideo('./testData/1.mp4', './testData/out.mp4')
-    # videoToImgFile('./testData/4.mp4', './testData/test/')
-    videoToColorCharVideo('./testData/4.mp4', './testData/out4.mp4')  # 视频转换为彩色字符视频
     # a = ArrayImgToColorCharImg('./testData/2.png')
     # cv2.imwrite('./testData/output.png', a)
+    # videoToColorCharVideo('./testData/4.mp4', './testData/out4.mp4')  # 视频转换为彩色字符视频
+    # print(getVideoInfo('./1.mp4'))  # 获取视频信息
+    # print(getVideoInfo('./tmp/88.png'))  # 获取图片信息
+    videoToImgFile('./2.mp4', './tmp/')  # 视频转为图片文件
+    # videoToGif('./1.mp4',"./a.gif",fps=30)  # 视频转为gif
+    # imgFilesToVideo('./tmp/',fps=30)  # 由图片文件夹的图片 合成视频
+    # imgClip("./tmp/88.png",clipData=(280,0,720,720),outpath="./1.png")  # 图片切割
+    # imgToGif("./tmp/","./b.gif")  # 由图片文件夹中图片合成gif动图  有个问题生成图过大
+    # imageio.imread("<clipboard>")  # 获取剪贴板图片
+    os.system("pause")
